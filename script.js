@@ -2,8 +2,13 @@ document.addEventListener("DOMContentLoaded", () => {
     const canvas = document.getElementById('wheelCanvas');
     const ctx = canvas.getContext('2d');
     const optionInput = document.getElementById('optionInput');
+    const themeSelect = document.getElementById('themeSelect');
+    const fontSelect = document.getElementById('fontSelect');
+    const volumeSlider = document.getElementById('volumeSlider');
+    const customPanel = document.getElementById('customPalettePanel');
+    const colorContainer = document.getElementById('colorPickerContainer');
+    const addColorBtn = document.getElementById('addColorBtn');
     const bgMusic = document.getElementById('bgMusic');
-    const spinSound = document.getElementById('spinSound');
     const winSound = document.getElementById('winSound');
 
     const themes = {
@@ -14,32 +19,53 @@ document.addEventListener("DOMContentLoaded", () => {
         Kitzia: ["#8BC34A", "#F9F9F9", "#FFEE8C", "#111111"]
     };
 
-    // Cargar datos
-    let options = JSON.parse(localStorage.getItem('shadow_opts')) || ["Opción A", "Opción B", "Opción C"];
+    let options = JSON.parse(localStorage.getItem('shadow_opts')) || ["Opción 1", "Opción 2", "Opción 3"];
     let history = JSON.parse(localStorage.getItem('shadow_hist')) || [];
     let currentTheme = localStorage.getItem('shadow_theme') || 'Shadow';
     let currentFont = localStorage.getItem('shadow_font') || "'Poppins', sans-serif";
+    let customColors = JSON.parse(localStorage.getItem('shadow_custom_colors')) || ["#00aaff", "#ff0000", "#ffffff"];
     
     let startAngle = 0;
     let isSpinning = false;
-    let musicActive = false;
 
-    // --- FUNCIONES CORE ---
+    // --- AUDIO ---
+    bgMusic.volume = localStorage.getItem('shadow_vol') || 0.3;
+    volumeSlider.value = bgMusic.volume;
+    document.addEventListener('click', () => bgMusic.play().catch(() => {}), { once: true });
+
+    function saveData() {
+        localStorage.setItem('shadow_opts', JSON.stringify(options));
+        localStorage.setItem('shadow_hist', JSON.stringify(history));
+        localStorage.setItem('shadow_theme', currentTheme);
+        localStorage.setItem('shadow_font', currentFont);
+        localStorage.setItem('shadow_custom_colors', JSON.stringify(customColors));
+        localStorage.setItem('shadow_vol', bgMusic.volume);
+    }
+
+    // --- LÓGICA DE COLORES ---
+    function getColor(i) {
+        if (currentTheme === 'Custom') {
+            return customColors[i % customColors.length];
+        }
+        const palette = themes[currentTheme];
+        return palette[i % palette.length];
+    }
 
     function getContrast(hex) {
         const r = parseInt(hex.slice(1,3), 16), g = parseInt(hex.slice(3,5), 16), b = parseInt(hex.slice(5,7), 16);
         return ((r*299)+(g*587)+(b*114))/1000 >= 128 ? '#000' : '#fff';
     }
 
+    // --- RENDERIZADO ---
     function renderWheel() {
         const num = options.length;
-        if (num === 0) { ctx.clearRect(0,0,600,600); return; }
-        const arc = Math.PI / (num / 2);
+        if (num === 0) { ctx.clearRect(0,0,600,600); updateUI(); return; }
+        const arc = (Math.PI * 2) / num;
         ctx.clearRect(0,0,600,600);
 
         options.forEach((text, i) => {
             const angle = startAngle + i * arc;
-            const color = themes[currentTheme][i % themes[currentTheme].length];
+            const color = getColor(i);
             
             ctx.fillStyle = color;
             ctx.beginPath();
@@ -52,7 +78,8 @@ document.addEventListener("DOMContentLoaded", () => {
             ctx.translate(300, 300);
             ctx.rotate(angle + arc / 2);
             ctx.font = `bold 16px ${currentFont}`;
-            ctx.fillText(text.substring(0, 15), 100, 5);
+            ctx.textAlign = "right";
+            ctx.fillText(text.substring(0, 15), 250, 5);
             ctx.restore();
         });
         updateUI();
@@ -61,132 +88,121 @@ document.addEventListener("DOMContentLoaded", () => {
     function updateUI() {
         document.getElementById('optCount').textContent = options.length;
         document.getElementById('optionsList').innerHTML = options.map((o, i) => 
-            `<li><span>${o}</span><button onclick="removeOpt(${i})">🗑️</button></li>`).join('');
-        document.getElementById('historyList').innerHTML = history.map(h => `<li>${h}</li>`).join('');
+            `<li><span>${o}</span><button class="btn-text" onclick="removeOpt(${i})">X</button></li>`).join('');
+        document.getElementById('historyList').innerHTML = history.slice(0, 5).map(h => `<li>${h}</li>`).join('');
         
-        const palette = themes[currentTheme];
-        document.documentElement.style.setProperty('--primary', palette[0]);
-        document.documentElement.style.setProperty('--secondary', palette[1] || palette[0]);
+        customPanel.style.display = currentTheme === 'Custom' ? 'block' : 'none';
+        
+        const mainCol = currentTheme === 'Custom' ? customColors[0] : themes[currentTheme][0];
+        document.documentElement.style.setProperty('--primary', mainCol);
         document.body.style.fontFamily = currentFont;
     }
 
-    function saveData() {
-        localStorage.setItem('shadow_opts', JSON.stringify(options));
-        localStorage.setItem('shadow_hist', JSON.stringify(history));
-        localStorage.setItem('shadow_theme', currentTheme);
-        localStorage.setItem('shadow_font', currentFont);
+    // --- PALETA PERSONALIZADA ---
+    function renderPaletteInputs() {
+        colorContainer.innerHTML = '';
+        customColors.forEach((color, idx) => {
+            const div = document.createElement('div');
+            div.className = 'color-item';
+            div.innerHTML = `
+                <input type="color" value="${color}">
+                ${customColors.length > 3 ? `<button class="btn-remove-color" onclick="removeColor(${idx})">×</button>` : ''}
+            `;
+            div.querySelector('input').oninput = (e) => {
+                customColors[idx] = e.target.value;
+                saveData(); renderWheel();
+            };
+            colorContainer.appendChild(div);
+        });
+        addColorBtn.style.display = customColors.length >= 6 ? 'none' : 'block';
     }
 
-    // --- ACCIONES ---
+    window.removeColor = (i) => {
+        customColors.splice(i, 1);
+        renderPaletteInputs(); saveData(); renderWheel();
+    };
 
+    addColorBtn.onclick = () => {
+        if (customColors.length < 6) {
+            customColors.push("#888888");
+            renderPaletteInputs(); saveData(); renderWheel();
+        }
+    };
+
+    // --- ACCIONES ---
     function spin() {
         if (isSpinning || options.length < 2) return;
         isSpinning = true;
-        if(musicActive) bgMusic.play().catch(()=>{});
-        spinSound.currentTime = 0;
-        spinSound.play().catch(()=>{});
-
         let duration = 4000;
         let start = null;
-        let rotation = (Math.random() * 10 + 15) * Math.PI;
+        let rotation = (Math.random() * 5 + 15) * Math.PI;
         let initialAngle = startAngle;
 
-        function animate(timestamp) {
-            if (!start) start = timestamp;
-            let progress = timestamp - start;
-            let t = progress / duration;
+        function animate(now) {
+            if (!start) start = now;
+            let t = (now - start) / duration;
+            if (t > 1) t = 1;
             let ease = 1 - Math.pow(1 - t, 3);
-
             startAngle = initialAngle + rotation * ease;
             renderWheel();
-
-            if (progress < duration) {
-                requestAnimationFrame(animate);
-            } else {
-                finishSpin();
-            }
+            if (t < 1) requestAnimationFrame(animate);
+            else finishSpin();
         }
         requestAnimationFrame(animate);
     }
 
     function finishSpin() {
         isSpinning = false;
-        const degrees = (startAngle * 180 / Math.PI) % 360;
-        const arcDegrees = 360 / options.length;
-        const index = Math.floor((360 - degrees) / arcDegrees) % options.length;
+        const totalArc = (Math.PI * 2) / options.length;
+        let angle = (Math.PI * 1.5 - (startAngle % (Math.PI * 2))) % (Math.PI * 2);
+        if (angle < 0) angle += Math.PI * 2;
+        const index = Math.floor(angle / totalArc);
         const winner = options[index];
-
+        
         document.getElementById('winnerName').textContent = winner;
         document.getElementById('winnerModal').style.display = 'flex';
-        
         history.unshift(winner);
-        if (history.length > 5) history.pop();
-        winSound.play().catch(()=>{});
-        saveData();
-        renderWheel();
+        winSound.play();
+        saveData(); renderWheel();
     }
 
-    // --- EVENTOS ---
-
+    // --- EVENT LISTENERS ---
     document.getElementById('spinBtn').onclick = spin;
-    
     document.getElementById('addBtn').onclick = () => {
         const val = optionInput.value.trim();
         if (!val) return;
-        const lines = val.split('\n').map(l => l.trim()).filter(l => l !== "");
-        options = [...options, ...lines].slice(0, 100);
-        optionInput.value = "";
+        options = [...options, ...val.split('\n').filter(l => l.trim())];
+        optionInput.value = '';
         saveData(); renderWheel();
     };
 
-    window.removeOpt = (i) => {
-        options.splice(i, 1);
-        saveData(); renderWheel();
-    };
+    window.removeOpt = (i) => { options.splice(i, 1); saveData(); renderWheel(); };
 
     document.getElementById('resetBtn').onclick = () => {
         if(confirm("¿Borrar todo?")) { options = []; history = []; saveData(); renderWheel(); }
     };
 
-    document.getElementById('clearHistoryBtn').onclick = () => {
-        history = []; saveData(); updateUI();
-    };
-
-    document.getElementById('closeModal').onclick = () => {
-        document.getElementById('winnerModal').style.display = 'none';
-    };
-
+    document.getElementById('clearHistoryBtn').onclick = () => { history = []; saveData(); updateUI(); };
+    document.getElementById('closeModal').onclick = () => document.getElementById('winnerModal').style.display = 'none';
+    
     document.getElementById('removeWinnerBtn').onclick = () => {
-        const name = document.getElementById('winnerName').textContent;
-        options = options.filter(o => o !== name);
+        options = options.filter(o => o !== document.getElementById('winnerName').textContent);
         document.getElementById('winnerModal').style.display = 'none';
         saveData(); renderWheel();
     };
 
-    document.getElementById('musicBtn').onclick = function() {
-        musicActive = !musicActive;
-        this.textContent = musicActive ? "Música: ON" : "Música: OFF";
-        musicActive ? bgMusic.play() : bgMusic.pause();
-    };
+    volumeSlider.oninput = (e) => { bgMusic.volume = e.target.value; saveData(); };
+    themeSelect.onchange = (e) => { currentTheme = e.target.value; renderPaletteInputs(); saveData(); renderWheel(); };
+    fontSelect.onchange = (e) => { currentFont = e.target.value; saveData(); renderWheel(); };
 
-    document.getElementById('fullscreenBtn').onclick = () => {
-        if (!document.fullscreenElement) document.documentElement.requestFullscreen();
-        else document.exitFullscreen();
-    };
-
-    document.getElementById('themeSelect').onchange = (e) => { currentTheme = e.target.value; saveData(); renderWheel(); };
-    document.getElementById('fontSelect').onchange = (e) => { currentFont = e.target.value; saveData(); renderWheel(); };
-    document.getElementById('volumeSlider').oninput = (e) => { bgMusic.volume = e.target.value; localStorage.setItem('shadow_vol', e.target.value); };
-
-    // Teclas
     document.onkeydown = (e) => {
         if (document.activeElement === optionInput) return;
         if (e.code === "Space" || e.key === "Enter") { e.preventDefault(); spin(); }
     };
 
-    // Inicialización final
-    bgMusic.volume = localStorage.getItem('shadow_vol') || 0.3;
-    document.getElementById('themeSelect').value = currentTheme;
-    document.getElementById('fontSelect').value = currentFont;
+    // Inicialización
+    themeSelect.value = currentTheme;
+    fontSelect.value = currentFont;
+    renderPaletteInputs();
     renderWheel();
 });
